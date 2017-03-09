@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 import nn
+import tensorflow as tf
 
 class state(object):
     def __init__(self, value):
@@ -31,7 +32,7 @@ class action(object):
         return str(self.action)
 
 class qlearn(object):
-    def __init__(self, state_shape, actions):
+    def __init__(self, state_shape, actions, output_path):
         self.alpha = 1
         self.gamma = 1
         self.random_action_alpha = 1
@@ -45,13 +46,11 @@ class qlearn(object):
 
         self.actions = actions
 
-        # the first two are time decay, the second two are exponential decay
-        # the first in the pair has variable random action cap and alpa, the second one has it fixed at 0.1
+        output_path += '/run.%d' % (time.time())
+        self.summary_writer = tf.summary.FileWriter(output_path)
 
-        t = time.time()
-
-        self.main = nn.nn("main", state_shape[0], actions, 'mc0/main_run.%d' % t)
-        self.follower = nn.nn("follower", state_shape[0], actions, 'mc0/follower_run.%d' % t)
+        self.main = nn.nn("main", state_shape[0], actions, self.summary_writer)
+        self.follower = nn.nn("follower", state_shape[0], actions, self.summary_writer)
         self.history = []
 
     def weighted_choice(self, ch):
@@ -128,7 +127,7 @@ class qlearn(object):
 
         self.main.train(states, qvals)
 
-        if self.main.train_num % 30 == 0:
+        if self.main.train_num % 10 == 0:
             self.follower.import_params(self.main.export_params())
 
     def remix(self, n, ft):
@@ -146,3 +145,7 @@ class qlearn(object):
 
         self.truncate()
         #print "total: %d, start: %d, history len: %d, x: %d" % (total, start, len(self.history), int(n*ft))
+
+    def update_episode_stats(self, episodes, reward):
+        self.main.update_episode_stats(episodes, reward)
+        self.follower.update_episode_stats(episodes, reward)

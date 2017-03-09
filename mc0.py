@@ -1,6 +1,7 @@
 import numpy as np
 
 import gym
+import time
 
 import qlearn
 
@@ -12,7 +13,7 @@ class mcar_state(qlearn.state):
         return str(super(mcar_state, self).value())
 
 class mcar_pole:
-    def __init__(self, num_episodes):
+    def __init__(self, num_episodes, output_path):
         self.num_episodes = num_episodes
         self.step = 0
 
@@ -25,7 +26,7 @@ class mcar_pole:
         for i in range(self.obs_size):
             self.obs_history.append(np.zeros(ospace[0]))
 
-        self.q = qlearn.qlearn((ospace[0]*self.obs_size,), self.env.action_space.n)
+        self.q = qlearn.qlearn((ospace[0]*self.obs_size,), self.env.action_space.n, output_path)
 
     def new_state(self, obs):
         if len(self.obs_history) == self.obs_size:
@@ -61,6 +62,7 @@ class mcar_pole:
 
                 s = sn
 
+            self.q.update_episode_stats(i_episode, cr)
             self.q.random_action_alpha_cap = self.q.ra_range_end - (self.q.ra_range_end - self.q.ra_range_begin) * (1. - steps/200.)
 
             if len(last_rewards) >= last_rewards_size:
@@ -82,5 +84,5 @@ class mcar_pole:
 
 import tensorflow as tf
 with tf.device('/cpu:0'):
-    cp = mcar_pole(10000)
+    cp = mcar_pole(10000, output_path='mc0')
     cp.run()
