@@ -34,7 +34,7 @@ class action(object):
 class qlearn(object):
     def __init__(self, state_shape, actions, output_path):
         self.alpha = 1
-        self.gamma = 1
+        self.gamma = 0.99
         self.random_action_alpha = 1
         self.random_action_alpha_cap = 1
         self.ra_range_begin = 0.05
