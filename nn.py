@@ -5,24 +5,31 @@ RMSPROP_DECAY = 0.9                # Decay term for RMSProp.
 RMSPROP_MOMENTUM = 0.9             # Momentum in RMSProp.
 RMSPROP_EPSILON = 1.0              # Epsilon term for RMSProp.
 
+def get_param_name(s):
+    return s.split('/')[1].split(':')[0]
+def get_scope_name(s):
+    return s.split('/')[0].split(':')[0]
+
 class nn(object):
     def __init__(self, scope, input_size, output_size, summary_writer):
+        print "going to initialize scope %s" % scope
         self.summary_writer = summary_writer
         self.scope = scope
         with tf.variable_scope(scope):
             self.do_init(input_size, output_size)
+            print "scope %s has been initialized" % scope
 
     def init_layer(self, name_suffix, dims):
         wname = 'w' + name_suffix
         w = tf.get_variable(wname,
-                initializer=tf.random_uniform(dims),
+                initializer=tf.random_normal(dims),
                 regularizer=l1_l2_regularizer(scale_l1=self.reg_beta, scale_l2=self.reg_beta),
                 dtype=tf.float32)
         sw = tf.summary.histogram(wname, w)
         self.summary_weights.append(sw)
 
         bname = 'b' + name_suffix
-        b = tf.get_variable(bname, initializer=tf.random_uniform([dims[1]]), dtype=tf.float32)
+        b = tf.get_variable(bname, initializer=tf.random_normal([dims[1]]), dtype=tf.float32)
         sb = tf.summary.histogram(bname, b)
         self.summary_weights.append(sb)
 
@@ -121,24 +128,84 @@ class nn(object):
                 epsilon=RMSPROP_EPSILON, name='optimizer')
 
         self.optimizer_step = opt.minimize(self.loss, global_step=global_step)
+        grads = opt.compute_gradients(self.loss)
+        self.compute_gradients_step = [grad[0] for grad in grads]
+
+        self.gradient_names = []
+        apply_grads = []
+        for e in grads:
+            if e[0] is None:
+                continue
+
+            if self.scope != get_scope_name(e[1].name):
+                continue
+
+            pname = get_param_name(e[1].name)
+            gname = 'gradient_%s' % (pname)
+            print "gradient %s -> %s" % (e[1], gname)
+            self.gradient_names.append(gname)
+
+            pl = tf.placeholder(tf.float32, shape=e[1].get_shape(), name=gname)
+            apply_grads.append((pl, e[1]))
+
+            ag = tf.summary.histogram(self.scope + '_apply_' + gname, e[1])
+            cg = tf.summary.histogram(self.scope + '_compute_' + gname, e[0])
+
+        self.apply_gradients_step = opt.apply_gradients(apply_grads, global_step=global_step)
 
         self.sess = tf.Session()
         self.summary_weights_merged = tf.summary.merge(self.summary_weights)
         self.merged = tf.summary.merge_all()
 
-        self.init = tf.global_variables_initializer()
-        self.sess.run(self.init)
+        init = [tf.global_variables_initializer(), tf.local_variables_initializer()]
+        self.sess.run(init)
 
-    def train(self, states, qvals):
+
+    def train(self, states, qvals, want_grads=False):
         self.train_num += 1
 
-        summary, _, loss = self.sess.run([self.merged, self.optimizer_step, self.loss], feed_dict={
+        ops = [self.merged, self.optimizer_step, self.loss]
+        if want_grads:
+            ops.append(self.compute_gradients_step)
+
+        ret = self.sess.run(ops, feed_dict={
+                self.scope + '/x:0': states,
+                self.scope + '/y:0': qvals,
+            })
+        summary = ret[0]
+        self.summary_writer.add_summary(summary, self.train_num)
+
+        grad = None
+        if want_grads:
+            grad = ret[3]
+
+        loss = ret[2]
+        return loss, grad
+
+    def compute_gradients(self, states, qvals):
+        self.train_num += 1
+
+        summary, grads = self.sess.run([self.merged, self.compute_gradients_step], feed_dict={
                 self.scope + '/x:0': states,
                 self.scope + '/y:0': qvals,
             })
         self.summary_writer.add_summary(summary, self.train_num)
 
-        return loss
+        dret = {}
+        for k, v in zip(self.gradient_names, grads):
+            dret[k] = v
+
+        return dret
+
+    def apply_gradients(self, grads):
+        feed_dict = {}
+        #print "apply: %s" % grads
+        for n, g in grads.iteritems():
+            gname = self.scope + '/' + n + ':0'
+            #print "apply gradients to %s" % (gname)
+            feed_dict[gname] = g.read()
+
+        return self.sess.run([self.apply_gradients_step], feed_dict=feed_dict)
 
     def predict(self, states):
         p = self.sess.run([self.model], feed_dict={
