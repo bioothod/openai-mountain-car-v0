@@ -122,8 +122,8 @@ class asyncq(object):
         self.gamma = 0.99
         self.alpha = 1.0
 
-        self.target_update_step = 50
-        self.gradient_update_step = 10
+        self.target_update_step = 1000
+        self.gradient_update_step = 100
 
         self.grads = {}
 
@@ -188,13 +188,14 @@ class asyncq(object):
             qvals[idx][a] = qsa
 
         grads = self.main.compute_gradients(states, qvals)
-        #grads = self.main.train(states, qvals)
-        for k, v in grads.iteritems():
-            e = self.grads.get(k)
-            if e:
-                e.update(v)
-            else:
-                self.grads[k] = gradient(v)
+        #loss, grads = self.main.train(states, qvals, True)
+        if grads:
+            for k, v in grads.iteritems():
+                e = self.grads.get(k)
+                if e:
+                    e.update(v)
+                else:
+                    self.grads[k] = gradient(v)
 
         self.steps += 1
 
@@ -217,7 +218,7 @@ class run(object):
         self.total_steps = 0
         self.batch_size = 32
 
-        self.steps = history(10000)
+        self.steps = history(10)
 
         oshape = self.env.observation_space.shape
         self.current_state = state(oshape[0], state_size)
@@ -268,7 +269,7 @@ class mountain_car(object):
 
         self.target = nn.nn("target", self.input_size, self.output_size, self.swriter)
 
-    def run(self, prefix, num_episodes):
+    def run(self, aq, num_episodes):
         env = gym.make(self.name)
 
         oshape = env.observation_space.shape
@@ -282,12 +283,6 @@ class mountain_car(object):
 
         total_steps = 0
         worse = 200.
-
-        main = nn.nn(prefix + "_main", self.input_size, self.output_size, self.swriter)
-        main.import_params(self.target.export_params())
-
-        aq = asyncq(self.target, main, self.input_size, self.output_size, self.swriter)
-
 
         def batch_callback(unused):
             batch = []
@@ -324,13 +319,27 @@ class mountain_car(object):
 
         env.close()
 
+    def single_run(self, num_episodes):
+        prefix = '%d' % (1)
+
+        main = nn.nn(prefix + "_main", self.input_size, self.output_size, self.swriter)
+        main.import_params(self.target.export_params())
+        aq = asyncq(self.target, main, self.input_size, self.output_size, self.swriter)
+
+        self.run(aq, num_episodes)
+
     def parallel_run(self, num_threads, num_episodes):
 
         threads = []
         for i in range(num_threads):
             prefix = '%d' % (i)
 
-            r = threading.Thread(target=self.run, args=(self, prefix, num_episodes,))
+            main = nn.nn(prefix + "_main", self.input_size, self.output_size, self.swriter)
+            main.import_params(self.target.export_params())
+
+            aq = asyncq(self.target, main, self.input_size, self.output_size, self.swriter)
+
+            r = threading.Thread(target=self.run, args=(aq, num_episodes,))
             r.start()
             threads.append(r)
 
@@ -338,6 +347,6 @@ class mountain_car(object):
             r.join()
 
 if __name__ == '__main__':
-    mc = mountain_car(2, 'mc0')
-    #mc.parallel_run(4, 10000)
-    mc.run('1', 10000)
+    mc = mountain_car(10, 'mc0')
+    mc.parallel_run(10, 10000)
+    #mc.single_run(10000)
