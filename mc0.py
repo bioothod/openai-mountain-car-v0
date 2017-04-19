@@ -4,13 +4,9 @@ import gym
 import time
 
 import qlearn
+import state
 
-class mcar_state(qlearn.state):
-    def __init__(self, s):
-        super(mcar_state, self).__init__(s)
-
-    def __str__(self):
-        return str(super(mcar_state, self).value())
+from copy import deepcopy
 
 class mcar_pole:
     def __init__(self, num_episodes, output_path):
@@ -21,18 +17,15 @@ class mcar_pole:
 
         ospace = self.env.observation_space.shape
 
-        self.obs_size = 30
-        self.obs_history = []
-        for i in range(self.obs_size):
-            self.obs_history.append(np.zeros(ospace[0]))
+        self.obs_size = 2
+        self.current_state = state.state(ospace[0], self.obs_size)
 
         self.q = qlearn.qlearn((ospace[0]*self.obs_size,), self.env.action_space.n, output_path)
 
     def new_state(self, obs):
-        if len(self.obs_history) == self.obs_size:
-            self.obs_history = self.obs_history[1:]
-        self.obs_history.append(obs)
-        return mcar_state(np.concatenate(self.obs_history))
+        self.current_state.push_array(obs)
+        self.current_state.complete()
+        return deepcopy(self.current_state)
 
     def run(self):
         last_rewards = []
@@ -54,7 +47,7 @@ class mcar_pole:
 
                 sn = self.new_state(new_observation)
 
-                self.q.store(s, a, sn, reward, done)
+                self.q.history.append((s, a, reward, sn, done), 1)
                 self.q.learn()
 
                 cr += reward
@@ -76,9 +69,6 @@ class mcar_pole:
 
             print "%d episode, its reward: %d, total steps: %d, mean reward over last %d episodes: %.1f, std: %.1f, k: %.2f" % (
                     i_episode, cr, self.step, len(last_rewards), mean, np.std(last_rewards), k)
-
-
-            self.q.remix(steps, k)
 
         self.env.close()
 

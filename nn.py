@@ -49,13 +49,14 @@ class nn(object):
         return w, b
 
     def init_model(self, input_size, output_size):
-        #layers = [50, 190, output_size]
-        layers = [256, output_size]
+        layers = [50, 190, output_size]
+        #layers = [256, output_size]
 
         print "init_model scope: %s" % (tf.get_variable_scope().name)
 
         x = tf.placeholder(tf.float32, [None, input_size], name='x')
         y = tf.placeholder(tf.float32, [None, output_size], name='y')
+        v = tf.placeholder(tf.float32, [None, 1], name='v')
 
         input_dimension = input_size
         input_layer = x
@@ -73,8 +74,10 @@ class nn(object):
                 mse = tf.reduce_mean(tf.square(h - y))
                 reg_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
                 loss = tf.add(mse, reg_loss, name='loss')
+
                 self.add_summary(tf.summary.scalar('mse', mse))
                 self.add_summary(tf.summary.scalar('loss', loss))
+
                 return h, loss
             else:
                 nl_h = tf.nn.tanh(h, name='nonlinear_' + hname)
@@ -135,6 +138,7 @@ class nn(object):
 
         self.optimizer_step = opt.minimize(self.loss, global_step=global_step)
         grads = opt.compute_gradients(self.loss)
+
         self.compute_gradients_step = []
         self.gradient_names = []
         apply_grads = []
@@ -227,7 +231,7 @@ class nn(object):
         for n, g in grads.iteritems():
             gname = self.scope + '/' + n + ':0'
             #print "apply gradients to %s" % (gname)
-            feed_dict[gname] = g.read()
+            feed_dict[gname] = g
 
         summary_weights, grads = self.sess.run([self.summary_weights_merged, self.apply_gradients_step], feed_dict=feed_dict)
         self.summary_writer.add_summary(summary_weights, self.train_num)

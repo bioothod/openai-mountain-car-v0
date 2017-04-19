@@ -5,15 +5,11 @@ import random
 import numpy as np
 import pandas as pd
 
+import history
 import nn
+import state
+
 import tensorflow as tf
-
-class state(object):
-    def __init__(self, value):
-        self._value = value
-
-    def value(self):
-        return self._value
 
 class action(object):
     def __init__(self, n):
@@ -45,56 +41,38 @@ class qlearn(object):
         self.batch_size = 256
 
         self.actions = actions
+        self.history = history.history(self.history_size)
 
         output_path += '/run.%d' % (time.time())
         self.summary_writer = tf.summary.FileWriter(output_path)
 
         self.main = nn.nn("main", state_shape[0], actions, self.summary_writer)
-        self.follower = nn.nn("follower", state_shape[0], actions, self.summary_writer)
-        self.history = []
+        #self.follower = nn.nn("follower", state_shape[0], actions, self.summary_writer)
 
     def weighted_choice(self, ch):
         return np.random.choice()
 
-    def get_action(self, state):
+    def get_action(self, s):
         self.total_actions += 1
         self.random_action_alpha = self.ra_range_begin + (self.random_action_alpha_cap - self.ra_range_begin) * math.exp(-0.0001 * self.total_actions)
 
         #self.random_action_alpha = 0.1
         random_choice = np.random.choice([True, False], p=[self.random_action_alpha, 1-self.random_action_alpha])
 
-        ch = 0
         if random_choice:
-            ch = np.random.randint(0, self.actions)
-        else:
-            v = state.value()
-            q = self.follower.predict(v.reshape(1, v.shape[0]))
-            ch = np.argmax(q[0])
-            #print "state: %s, q: %s, action: %s" % (state, q, ch)
+            return np.random.randint(0, self.actions)
 
-        return ch
-
-    def truncate(self):
-        diff = len(self.history) + 1 - self.history_size
-        if diff > 0:
-            self.history = self.history[diff:]
-
-    def store(self, s, a, sn, r, done):
-        self.truncate()
-        self.history.append((s, a, sn, r, done))
+        q = self.main.predict(s.vector())
+        return np.argmax(q[0])
 
     def learn(self):
-        hsize = len(self.history)
-        indexes = np.random.randint(hsize, size=min(self.batch_size, hsize))
-        batch = []
-        for i in indexes:
-            batch.append(self.history[i])
+        batch = self.history.sample(min(self.batch_size, self.history.size()))
 
         assert len(batch) != 0
         assert len(batch[0]) != 0
-        assert len(batch[0][0].value()) != 0
+        assert len(batch[0][0].read()) != 0
 
-        states_shape = (len(batch), len(batch[0][0].value()))
+        states_shape = (len(batch), len(batch[0][0].read()))
         states = np.ndarray(shape=states_shape)
         next_states = np.ndarray(shape=states_shape)
 
@@ -104,18 +82,18 @@ class qlearn(object):
 
         idx = 0
         for e in batch:
-            s, a, sn, r, done = e
+            s, a, r, sn, done = e
 
-            states[idx] = s.value()
-            next_states[idx] = sn.value()
+            states[idx] = s.read()
+            next_states[idx] = sn.read()
             idx += 1
 
-        qvals = self.follower.predict(states)
-        next_qvals = self.follower.predict(next_states)
+        qvals = self.main.predict(states)
+        next_qvals = self.main.predict(next_states)
 
         for idx in range(len(batch)):
             e = batch[idx]
-            s, a, sn, r, done = e
+            s, a, r, sn, done = e
 
             qmax_next = np.amax(next_qvals[idx])
             if done:
@@ -127,25 +105,9 @@ class qlearn(object):
 
         self.main.train(states, qvals)
 
-        if self.main.train_num % 10 == 0:
-            self.follower.import_params(self.main.export_params())
-
-    def remix(self, n, ft):
-        total = len(self.history)
-
-        if n > total:
-            n = total
-        start = total - n
-        e = self.history[start:]
-        b = self.history[0:start]
-
-        mult = 100
-        base = e * int(ft * mult)
-        self.history = b + random.sample(base, int(n * ft))
-
-        self.truncate()
-        #print "total: %d, start: %d, history len: %d, x: %d" % (total, start, len(self.history), int(n*ft))
+        #if self.main.train_num % 10 == 0:
+        #    self.follower.import_params(self.main.export_params())
 
     def update_episode_stats(self, episodes, reward):
         self.main.update_episode_stats(episodes, reward)
-        self.follower.update_episode_stats(episodes, reward)
+        #self.follower.update_episode_stats(episodes, reward)
