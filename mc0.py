@@ -14,6 +14,7 @@ class mcar_pole:
         self.step = 0
 
         self.env = gym.make('MountainCar-v0')
+        self.env = gym.wrappers.Monitor(self.env, 'mc0_wrappers')
 
         ospace = self.env.observation_space.shape
 
